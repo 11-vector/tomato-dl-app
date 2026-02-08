@@ -134,6 +134,6 @@ app = gr.mount_gradio_app(app, block, path="/")
 if __name__ == "__main__":
     block.launch(
         server_name="0.0.0.0",
-        server_port=os.environ.get("PORT", 7860),
+        server_port=int(os.environ.get("PORT", 7860)),
         share=False,
     )
