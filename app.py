@@ -1,13 +1,15 @@
 import os
+# import asyncio
 from pathlib import Path
 import gradio as gr
 import numpy as np
+import pandas as pd
 import tensorflow as tf
-import matplotlib.pyplot as plt
-from tflite import TfliteInference
+# from telegram import Bot
 from langchain_core.runnables import RunnableLambda
-from lib.agent import TomatoExpertAgent
 from fastapi import FastAPI
+from tflite import TfliteInference
+from lib.agent import TomatoExpertAgent
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -26,104 +28,73 @@ model = TfliteInference("hybrid.tflite", LABELS)
 model.load_model()
 
 
-async def callback_chatbot(message: gr.ChatMessage, history: list[gr.ChatMessage], image: np.ndarray, request: gr.Request):
+LANGUAGES = "English Yoruba Igbo Hausa French Spanish".split(" ")
+
+
+async def realtime_inference(
+    image: np.ndarray,
+    language: str,
+    request: gr.Request,
+    state: str = ""
+):
     user_thread_id = request.session_hash
     runnable_cfg = {"configurable": {"thread_id": user_thread_id}}
 
-    input_text = ""
-
-    if message['text']:
-        input_text += message["text"]
-
-    images = []
-    for fname in message['files']:
-        images.append(plt.imread(fname))
-
-    images = images if image is None else [*images, image]
+    input_text = f"Given the current tomato field stage give out information only in {
+        language} language\n"
 
     # perform image classification here
-    if len(images) > 0:
-        input_text += "this are the result of inference of the current tomato growth stage based on various section of the farm"
-
-    for i, image in enumerate(images, start=1):
-        resized_image = tf.image.resize(
-            image, (256, 256), method=tf.image.ResizeMethod.BILINEAR)
-        result = model.inference([np.expand_dims(resized_image, 0)])
-        # merge the data
-        input_text += f"\nsection-1: "
-        input_text += str.join(", ", map(lambda entry: f"{entry[0]}: {
-                               entry[1]:.6f}", result['labelled'].items()))
-
-    output_text = ""
-    if not input_text:
-        yield gr.ChatMessage(
-            content="provide input",
-            role="assistant"
-        )
-        return
-
-    async for text in expert.astream(input_text, config=runnable_cfg):
-        output_text += f"{text} "
-        yield gr.ChatMessage(
-            content=output_text,
-            role="assistant"
-        )
-    history.append(gr.ChatMessage(
-        content=output_text,
-        role="assistant"
-    ))
-
-
-def callback_predict(image: np.ndarray, state: str):
     if image is None:
-        return "Provide image input", ""
+        return "No input image provide", None, state
+
     resized_image = tf.image.resize(
         image, (256, 256), method=tf.image.ResizeMethod.BILINEAR)
     result = model.inference([np.expand_dims(resized_image, 0)])
+    # merge the data
+    result = {
+        key: f"{value*100:.4f}"
+        for (key, value) in result['labelled'].items()}
+    input_text += str.join("\n",
+                           map(lambda entry: f"{entry[0]}: {entry[1]}%", result.items()))
 
-    output_text = "Inference Result on image:\n"
-    output_text += str.join("\n", map(lambda entry: f"{entry[0]}: {
-        entry[1]:.6f}", result['labelled'].items()))
-    return output_text, output_text
+    output_text = ""
+
+    try:
+        async for text in expert.astream(input_text, config=runnable_cfg):
+            output_text += f"{text} "
+    except:
+        gr.Warning('Unable to get response from NLP: Reached token limit')
+
+    return output_text, pd.DataFrame([result]), state
 
 
-label_output = gr.Text("Predicition Result:")
-image_input = gr.Image(
-    sources=["upload", "webcam"],
-)
+initial = pd.DataFrame([], columns=["Vegetative", "FLowering", "Fruiting"])
 
-image_input2 = gr.Image(
-    sources=["upload", "webcam"],
-)
+with gr.Blocks() as inference_block:
+    state = gr.State([])
+    with gr.Row():
+        with gr.Column():
+            language = gr.Dropdown(LANGUAGES)
+            image_input = gr.Image(label="Input", sources=["webcam", "upload"])
+        with gr.Column():
+            label_output = gr.Textbox("Predicition Result:", lines=9)
+            prediction = gr.DataFrame(
+                initial)
 
-state = gr.State([])
-chat_block = gr.ChatInterface(
-    fn=callback_chatbot,
-    multimodal=True,
-    # save_history=True,
-    chatbot=gr.Chatbot(
-        value=[
-            gr.ChatMessage(
-                role="assistant",
-                content="Welcome to tomato analyst.",
-            )
-        ],
-        height=300),
-    textbox=gr.MultimodalTextbox(
-        value=None,
-        file_types=["image"],
-        sources=["upload"]),
-    description="Tomato Assistant chatbot with multimodal input",
-    additional_inputs_accordion=gr.Accordion(open=True),
-    additional_inputs=[image_input],
-)
+        image_input.stream(realtime_inference,
+                           [image_input, language, state], [
+                               label_output, prediction, state],
+                           time_limit=60,
+                           stream_every=90,
+                           concurrency_limit=1
+                           )
 
-inference_block = gr.Interface(
-    callback_predict, [image_input2, state], [label_output, state])
+        # state.change(lambda x: x, [state], prediction)
+
 
 block = gr.TabbedInterface(
-    [chat_block, inference_block],
-    ["Chat", "Inference"],
+    [inference_block],
+    ["Inference"],
     title="Tomato Assistant AI",
 )
 
