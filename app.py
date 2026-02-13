@@ -84,18 +84,16 @@ with gr.Blocks() as inference_block:
         image_input.stream(realtime_inference,
                            [image_input, language, state], [
                                label_output, prediction, state],
-                           time_limit=60,
-                           stream_every=90,
+                           time_limit=30,
+                           stream_every=60,
                            concurrency_limit=1
                            )
-
-        # state.change(lambda x: x, [state], prediction)
 
 
 block = gr.TabbedInterface(
     [inference_block],
     ["Inference"],
-    title="Tomato Assistant AI",
+    title="Tomato Project",
 )
 
 
