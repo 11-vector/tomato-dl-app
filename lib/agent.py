@@ -31,8 +31,6 @@ Vegetative: %
 Flowering: %
 Fruiting: %
 
-DECISION RULES
-
 The highest percentage determines the primary stage.
 
 If the difference between the two highest values is ≤10%, include a transition statement referencing the second stage.

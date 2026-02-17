@@ -1,11 +1,9 @@
 import os
-# import asyncio
 from pathlib import Path
 import gradio as gr
 import numpy as np
 import pandas as pd
 import tensorflow as tf
-# from telegram import Bot
 from langchain_core.runnables import RunnableLambda
 from fastapi import FastAPI
 from tflite import TfliteInference
@@ -68,26 +66,46 @@ async def realtime_inference(
     return output_text, pd.DataFrame([result]), state
 
 
+def select_input_mode(value):
+    if value == "Image":
+        return gr.Image(label="Input", sources=["upload"])
+    return gr.Image(label="Input", sources=["webcam"])
+
+
 initial = pd.DataFrame([], columns=["Vegetative", "FLowering", "Fruiting"])
 
 with gr.Blocks() as inference_block:
     state = gr.State([])
-    with gr.Row():
-        with gr.Column():
-            language = gr.Dropdown(LANGUAGES)
-            image_input = gr.Image(label="Input", sources=["webcam", "upload"])
-        with gr.Column():
-            label_output = gr.Textbox("Predicition Result:", lines=9)
-            prediction = gr.DataFrame(
-                initial)
+    with gr.Column():
+        input_mode = gr.Dropdown(["Streaming", "Image"])
+        with gr.Row():
+            @gr.render(inputs=input_mode)
+            def render_row(mode: str):
+                with gr.Column():
+                    language = gr.Dropdown(LANGUAGES, interactive=True)
+                    image_input = gr.Image(
+                        key=mode,
+                        label="Input", sources=[
+                            "upload" if mode == "Image" else "webcam"])
+                with gr.Column():
+                    label_output = gr.Textbox("Predicition Result:", lines=9)
+                    prediction = gr.DataFrame(initial)
 
-        image_input.stream(realtime_inference,
-                           [image_input, language, state], [
-                               label_output, prediction, state],
-                           time_limit=30,
-                           stream_every=60,
-                           concurrency_limit=1
-                           )
+                    if mode == "Image":
+                        image_input.upload(
+                            realtime_inference,
+                            [image_input, language, state], [
+                                label_output, prediction, state],
+                        )
+                    else:
+                        image_input.stream(
+                            realtime_inference,
+                            [image_input, language, state], [
+                                label_output, prediction, state],
+                            time_limit=30,
+                            stream_every=60,
+                            concurrency_limit=1
+                        )
 
 
 block = gr.TabbedInterface(
