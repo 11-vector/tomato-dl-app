@@ -61,7 +61,8 @@ async def realtime_inference(
         async for text in expert.astream(input_text, config=runnable_cfg):
             output_text += f"{text} "
     except:
-        gr.Warning('Unable to get response from NLP: Reached token limit')
+        gr.Warning(
+            'Unable to get response from NLP: Reached token limit or Network Error')
 
     return output_text, pd.DataFrame([result]), state
 
